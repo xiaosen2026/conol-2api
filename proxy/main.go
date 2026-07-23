@@ -96,19 +96,23 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	if len(conolMsgs) == 0 {
 		writeJSON(w, 400, map[string]string{"error": "no valid messages"})
 		return
+	}
+
+
 		// 上传图片到 /api/assets
+		if len(uploads) > 0 {
+			log.Printf("Uploading %d images...", len(uploads))
+		}
 		for _, up := range uploads {
 			asset, err := client.UploadAsset(up.RawBytes, up.MediaType)
 			if err != nil {
-				log.Printf("❌ 图片上传失败: %v", err)
+				log.Printf("Image upload failed: %v", err)
 				writeJSON(w, 500, map[string]string{"error": "image upload failed: " + err.Error()})
 				return
 			}
 			conolMsgs[up.MsgIndex].Content = asset.URL
-			log.Printf("🖼 图片已上传: %s", asset.URL)
+			log.Printf("Image uploaded: %s", asset.URL)
 		}
-
-	}
 
 	// 构建系统提示词（含工具定义）
 	if sp := openai.BuildSystemPrompt(&req); sp != "" {
