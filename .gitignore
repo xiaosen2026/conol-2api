@@ -1,0 +1,21 @@
+# Binaries
+*.exe
+*.exe~
+
+# Logs
+*.log
+
+# Tokens / secrets (MUST NOT BE COMMITTED)
+tokens.txt
+tokens.json
+token*.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
