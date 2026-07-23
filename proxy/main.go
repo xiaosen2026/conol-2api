@@ -99,6 +99,22 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 
+
+		// 上传图片到 /api/assets
+		if len(uploads) > 0 {
+			log.Printf("Uploading %d images...", len(uploads))
+		}
+		for _, up := range uploads {
+			asset, err := client.UploadAsset(up.RawBytes, up.MediaType)
+			if err != nil {
+				log.Printf("Image upload failed: %v", err)
+				writeJSON(w, 500, map[string]string{"error": "image upload failed: " + err.Error()})
+				return
+			}
+			conolMsgs[up.MsgIndex].Content = asset.URL
+			log.Printf("Image uploaded: %s", asset.URL)
+		}
+
 		// 上传图片到 /api/assets
 		if len(uploads) > 0 {
 			log.Printf("Uploading %d images...", len(uploads))
