@@ -78,17 +78,45 @@ func (c *Client) CreateSession(messages []Message, systemPrompt string, timezone
 	if systemPrompt != "" {
 		req["systemPrompt"] = systemPrompt
 	}
-	// 透传额外选项 (model, runtime, etc.)
 	for k, v := range opts {
 		req[k] = v
 	}
-	log.Printf("[CreateSession] model=%v, systemPrompt=%d chars", req["agentModel"], len(systemPrompt))
+	log.Printf("[CreateSession] modelPreset=%v agentModel=%v", req["modelPreset"], req["agentModel"])
 	var result CreateResp
 	if err := c.do("POST", "/api/sessions", req, &result); err != nil {
 		return nil, err
 	}
 	log.Printf("[CreateSession] ✅ sid=%s", result.SessionID)
 	return &result, nil
+}
+
+// UploadAsset 上传图片到 conol.ai
+func (c *Client) UploadAsset(rawBytes []byte, mediaType string) (*AssetInfo, error) {
+	req, _ := http.NewRequest("POST", BaseURL+"/api/assets", bytes.NewReader(rawBytes))
+	req.Header.Set("Content-Type", mediaType)
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Cookie", c.cookieHeader())
+	req.Header.Set("Origin", BaseURL)
+	req.Header.Set("Referer", BaseURL+"/home")
+
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("upload asset: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("upload status %d: %s", resp.StatusCode, string(b[:min(len(b), 200)]))
+	}
+
+	var asset AssetInfo
+	if err := json.NewDecoder(resp.Body).Decode(&asset); err != nil {
+		return nil, fmt.Errorf("decode asset: %w", err)
+	}
+	log.Printf("[UploadAsset] ✅ %s → %s", mediaType, asset.URL)
+	return &asset, nil
 }
 
 // StreamMessages 流式读取会话消息
@@ -217,6 +245,13 @@ const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 
 // ─── 类型 ───
 
+	type AssetInfo struct {
+		ID        string `json:"id"`
+		URL       string `json:"url"`
+		MediaType string `json:"mediaType"`
+	}
+
+
 type SessionInfo struct {
 	ID        string `json:"id"`
 	UserID    string `json:"userId"`
@@ -237,7 +272,8 @@ type UserInfo struct {
 
 type Message struct {
 	Content interface{} `json:"content"` // string 或 []ContentPart
-	Type    string      `json:"type"`
+	Type      string      `json:"type"`
+		MediaType string      `json:"mediaType,omitempty"`
 }
 
 type ContentPart struct {

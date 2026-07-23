@@ -2,6 +2,7 @@
 package openai
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,7 +13,15 @@ import (
 )
 
 // ConvertMessages OpenAI 消息 → conol.ai 消息
-func ConvertMessages(msgs []ChatMessage) (conolMsgs []conol.Message, systemPrompt, lastUserText string) {
+// ImageUpload 需要上传的图片信息
+type ImageUpload struct {
+	RawBytes  []byte
+	MediaType string
+	MsgIndex  int // 属于哪个消息
+	PartIndex int // 消息中的哪个 part
+}
+
+func ConvertMessages(msgs []ChatMessage) (conolMsgs []conol.Message, systemPrompt, lastUserText string, uploads []ImageUpload) {
 	for _, m := range msgs {
 		switch m.Role {
 		case "system":
@@ -307,6 +316,25 @@ func extractMultimodal(content interface{}) (text string, parts []ContentPart) {
 		return strings.Join(texts, "\n"), parts
 	}
 	return "", nil
+}
+
+// decodeBase64Image 解码 data:image/xxx;base64,... 为原始字节
+func decodeBase64Image(dataURL string) ([]byte, string) {
+	if !strings.HasPrefix(dataURL, "data:") {
+		return nil, ""
+	}
+	// data:image/png;base64,xxxx
+	idx := strings.Index(dataURL, ";base64,")
+	if idx < 0 {
+		return nil, ""
+	}
+	mime := dataURL[5:idx] // image/png
+	b64 := dataURL[idx+8:]
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return nil, ""
+	}
+	return raw, mime
 }
 
 func StrPtr(s string) *string { return &s }
