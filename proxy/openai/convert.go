@@ -2,7 +2,6 @@
 package openai
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -19,18 +18,17 @@ func ConvertMessages(msgs []ChatMessage) (conolMsgs []conol.Message, systemPromp
 		case "system":
 			systemPrompt = extractText(m.Content)
 		case "user":
-			text, images := extractMultimodal(m.Content)
+			text, parts := extractMultimodal(m.Content)
 			lastUserText = text
-			if len(images) > 0 {
-				parts := []string{}
-				for _, img := range images {
-					parts = append(parts, fmt.Sprintf("[Image: %s]", truncate(img, 80)))
+			if len(parts) > 0 {
+				conolParts := make([]conol.ContentPart, len(parts))
+				for i, p := range parts {
+					conolParts[i] = conol.ContentPart{Type: p.Type, Text: p.Text}
+					if p.ImageURL != nil {
+						conolParts[i].ImageURL = &conol.ImageURL{URL: p.ImageURL.URL, Detail: p.ImageURL.Detail}
+					}
 				}
-				if text != "" {
-					parts = append(parts, text)
-				}
-				conolMsgs = append(conolMsgs, conol.Message{Content: strings.Join(parts, "\n"), Type: "text"})
-			} else {
+				conolMsgs = append(conolMsgs, conol.Message{Content: conolParts, Type: "text"})
 				conolMsgs = append(conolMsgs, conol.Message{Content: text, Type: "text"})
 			}
 		case "assistant":
@@ -278,7 +276,7 @@ func extractText(content interface{}) string {
 	return fmt.Sprintf("%v", content)
 }
 
-func extractMultimodal(content interface{}) (text string, images []string) {
+func extractMultimodal(content interface{}) (text string, parts []ContentPart) {
 	switch v := content.(type) {
 	case string:
 		return v, nil
@@ -293,36 +291,23 @@ func extractMultimodal(content interface{}) (text string, images []string) {
 			case "text":
 				if t, _ := m["text"].(string); t != "" {
 					texts = append(texts, t)
+					parts = append(parts, ContentPart{Type: "text", Text: t})
 				}
 			case "image_url":
 				if img, _ := m["image_url"].(map[string]interface{}); img != nil {
 					url, _ := img["url"].(string)
-					if strings.HasPrefix(url, "data:") {
-						if idx := strings.Index(url, "base64,"); idx > 0 {
-							data := url[idx+7:]
-							decoded, err := base64.StdEncoding.DecodeString(data[:min(len(data), 200)])
-							if err == nil {
-								images = append(images, fmt.Sprintf("data:image(base64,%dbytes,%x...)", len(data), decoded[:min(len(decoded), 10)]))
-							} else {
-								images = append(images, fmt.Sprintf("data:image(base64,%dbytes)", len(data)))
-							}
-						}
-					} else {
-						images = append(images, url)
-					}
+					detail, _ := img["detail"].(string)
+					parts = append(parts, ContentPart{
+						Type:     "image_url",
+						ImageURL: &ImageURL{URL: url, Detail: detail},
+					})
 				}
 			}
 		}
-		return strings.Join(texts, "\n"), images
+		return strings.Join(texts, "\n"), parts
 	}
 	return "", nil
 }
 
 func StrPtr(s string) *string { return &s }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
-}
