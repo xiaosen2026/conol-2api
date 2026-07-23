@@ -30,14 +30,36 @@ func ConvertMessages(msgs []ChatMessage) (conolMsgs []conol.Message, systemPromp
 			text, parts := extractMultimodal(m.Content)
 			lastUserText = text
 			if len(parts) > 0 {
-				conolParts := make([]conol.ContentPart, len(parts))
-				for i, p := range parts {
-					conolParts[i] = conol.ContentPart{Type: p.Type, Text: p.Text}
-					if p.ImageURL != nil {
-						conolParts[i].ImageURL = &conol.ImageURL{URL: p.ImageURL.URL, Detail: p.ImageURL.Detail}
-					}
+				hasImage := false
+				for _, p := range parts {
+					if p.ImageURL != nil { hasImage = true; break }
 				}
-				conolMsgs = append(conolMsgs, conol.Message{Content: conolParts, Type: "text"})
+				if hasImage {
+					for _, p := range parts {
+						if p.ImageURL != nil {
+							raw, mime := decodeBase64Image(p.ImageURL.URL)
+							if raw != nil {
+								conolMsgs = append(conolMsgs, conol.Message{
+									Type: "image", MediaType: mime, Content: "",
+								})
+								uploads = append(uploads, ImageUpload{
+									RawBytes: raw, MediaType: mime,
+									MsgIndex: len(conolMsgs) - 1,
+								})
+							} else {
+								conolMsgs = append(conolMsgs, conol.Message{
+									Type: "image", MediaType: "image/png",
+									Content: p.ImageURL.URL,
+								})
+							}
+						} else if p.Text != "" {
+							conolMsgs = append(conolMsgs, conol.Message{Content: p.Text, Type: "text"})
+						}
+					}
+				} else {
+					conolMsgs = append(conolMsgs, conol.Message{Content: text, Type: "text"})
+				}
+			} else {
 				conolMsgs = append(conolMsgs, conol.Message{Content: text, Type: "text"})
 			}
 		case "assistant":
