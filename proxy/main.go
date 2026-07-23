@@ -92,7 +92,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 转换消息
-	conolMsgs, systemPrompt, _, uploads := openai.ConvertMessages(req.Messages)
+	conolMsgs, systemPrompt, _, uploads := openai.ConvertMessages(req.Messages, req.Model)
 	if len(conolMsgs) == 0 {
 		writeJSON(w, 400, map[string]string{"error": "no valid messages"})
 		return

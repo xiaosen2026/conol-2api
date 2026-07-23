@@ -21,7 +21,7 @@ type ImageUpload struct {
 	PartIndex int // 消息中的哪个 part
 }
 
-func ConvertMessages(msgs []ChatMessage) (conolMsgs []conol.Message, systemPrompt, lastUserText string, uploads []ImageUpload) {
+func ConvertMessages(msgs []ChatMessage, model string) (conolMsgs []conol.Message, systemPrompt, lastUserText string, uploads []ImageUpload) {
 	for _, m := range msgs {
 		switch m.Role {
 		case "system":
@@ -35,21 +35,29 @@ func ConvertMessages(msgs []ChatMessage) (conolMsgs []conol.Message, systemPromp
 					if p.ImageURL != nil { hasImage = true; break }
 				}
 				if hasImage {
+					supportsImage := strings.HasPrefix(model, "gemini") || strings.Contains(model, "gemini")
 					for _, p := range parts {
 						if p.ImageURL != nil {
-							raw, mime := decodeBase64Image(p.ImageURL.URL)
-							if raw != nil {
-								conolMsgs = append(conolMsgs, conol.Message{
-									Type: "image", MediaType: mime, Content: "",
-								})
-								uploads = append(uploads, ImageUpload{
-									RawBytes: raw, MediaType: mime,
-									MsgIndex: len(conolMsgs) - 1,
-								})
+							if supportsImage {
+								raw, mime := decodeBase64Image(p.ImageURL.URL)
+								if raw != nil {
+									conolMsgs = append(conolMsgs, conol.Message{
+										Type: "image", MediaType: mime, Content: "",
+									})
+									uploads = append(uploads, ImageUpload{
+										RawBytes: raw, MediaType: mime,
+										MsgIndex: len(conolMsgs) - 1,
+									})
+								} else {
+									conolMsgs = append(conolMsgs, conol.Message{
+										Type: "image", MediaType: "image/png",
+										Content: p.ImageURL.URL,
+									})
+								}
 							} else {
 								conolMsgs = append(conolMsgs, conol.Message{
-									Type: "image", MediaType: "image/png",
-									Content: p.ImageURL.URL,
+									Content: "[Image attached — this model does not support images. Use gemini-3.5-flash for image analysis.]",
+									Type: "text",
 								})
 							}
 						} else if p.Text != "" {
@@ -86,17 +94,35 @@ func ConvertMessages(msgs []ChatMessage) (conolMsgs []conol.Message, systemPromp
 // BuildSystemPrompt 构建系统提示词（含工具定义）
 func BuildSystemPrompt(req *ChatRequest) string {
 	var sb strings.Builder
+
+	// 用户自己的 system prompt
 	for _, m := range req.Messages {
 		if m.Role == "system" {
 			sb.WriteString(extractText(m.Content))
 			sb.WriteString("\n\n")
 		}
 	}
+
+	// API 模式覆盖指令：忽略 conol.ai 默认工作台工具
+	sb.WriteString("## API Mode\n")
+	sb.WriteString("You are running in API compatibility mode. CRITICAL RULES:\n")
+	sb.WriteString("- IGNORE all built-in workspace tools (notes, search, file management, sandbox, connectors, etc.)\n")
 	if len(req.Tools) > 0 {
-		sb.WriteString("You have access to these functions. Call them when needed:\n")
+		sb.WriteString("- ONLY use the function tools explicitly listed below. NEVER use any tool not in this list.\n")
+		sb.WriteString("- When a tool call is needed, output it using the function calling format exactly as specified below.\n")
+	} else {
+		sb.WriteString("- There are NO tools available. Respond with text only. NEVER attempt to call any tool or function.\n")
+		sb.WriteString("- Do NOT mention tools, workspaces, notes, sandboxes, or any platform features.\n")
+	}
+	sb.WriteString("- Respond directly to the user without invoking any internal platform workflows.\n\n")
+
+	// 工具定义
+	if len(req.Tools) > 0 {
+		sb.WriteString("## Available Functions\n")
+		sb.WriteString("You have access to ONLY these functions. Use them when needed:\n")
 		for _, t := range req.Tools {
 			if t.Type == "function" {
-				sb.WriteString(fmt.Sprintf("\n## %s\n%s\n", t.Function.Name, t.Function.Description))
+				sb.WriteString(fmt.Sprintf("\n### %s\n%s\n", t.Function.Name, t.Function.Description))
 				if t.Function.Parameters != nil {
 					b, _ := json.Marshal(t.Function.Parameters)
 					sb.WriteString(fmt.Sprintf("Parameters: %s\n", string(b)))
